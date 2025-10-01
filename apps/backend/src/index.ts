@@ -20,6 +20,7 @@ Bun.serve({
                 "value": "successfull",
                 "socketId": `${socketId}`
             })
+            console.log(`sending message: ${socketId}`);
             ws.send(sendMessage);
             setTimeout(() => {
                 if(!checkJoinReq){
@@ -33,7 +34,7 @@ Bun.serve({
             if(msg.type === "join"){
 
             }else if(msg.type === "create"){
-                
+
             }
         }
     }
