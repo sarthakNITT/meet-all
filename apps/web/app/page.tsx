@@ -1,26 +1,30 @@
 "use client";
 
-import { useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { getConnectedDevices } from "./utils/helperFunctions/getConnectedDevices";
 import { playVideoFromCamera } from "./utils/helperFunctions/playVideoFromCamera";
 import { updateCameraList } from "./utils/helperFunctions/updateCameraList";
 
 export default function Home () {
   const socketRef = useRef<WebSocket | null>(null);
+  const peerRef = useRef<RTCPeerConnection | null>(null);
+  const peerIdRef = useRef(null);
+  const [roomId, setRoomId] = useState<string>();
+  const [connection, setConnection] = useState<boolean>(false);
   const openMediaDevices = async (constraints: MediaStreamConstraints) => {
     return await navigator.mediaDevices.getUserMedia(constraints);
   }
 
   try {
     const stream = openMediaDevices({'video':true,'audio':true});
-    console.log('Got MediaStream:', stream);
+    // console.log('Got MediaStream:', stream);
   } catch(error) {
     console.error('Error accessing media devices.', error);
   }
   
   // Get the initial set of cameras connected
   const videoCameras = getConnectedDevices('videoinput');
-  console.log('Cameras found:', videoCameras);
+  // console.log('Cameras found:', videoCameras);
   updateCameraList(videoCameras);
 
   // Listen for changes to media devices and update the list accordingly
@@ -33,6 +37,38 @@ export default function Home () {
     console.log(1);
     const socket = new WebSocket("ws://localhost:8080");
     socketRef.current = socket;
+    setConnection(true);
+  }
+
+  function handleJoinRoom () {
+    console.log(4);
+    console.log(roomId);
+    console.log(peerIdRef.current);
+    socketRef.current?.send(JSON.stringify({
+      "type": "join",
+      "roomId": `${roomId}`,
+      "peerId": `${peerIdRef.current}`
+    }))
+  }
+  function handleCreateRoom () {
+    console.log(4);
+    let generateId = "";
+    const characters = "qwertyuiopasdfghjklzxcvbnmQWERTYUIOPASDFGHJKLZXCVBNM1234567890";
+    for(let i = 0; i < 8; i++){
+      generateId += characters.charAt(Math.floor(Math.random() * characters.length));
+    }
+    socketRef.current?.send(JSON.stringify({
+      "type": "create",
+      "peerId": `${peerIdRef.current}`,
+      "roomId": `${generateId}`
+    }))
+  }
+  
+  async function handleMessages () {
+    if(!socketRef.current){
+      console.log("socketref.current is null");
+      return;
+    }
     socketRef.current.onmessage = async (event) => {
       console.log(2);
       const msg = JSON.parse(event.data);
@@ -40,65 +76,125 @@ export default function Home () {
       if(msg.type === "connection"){
         console.log(3);
         console.log(msg.socketId);
+        peerIdRef.current = msg.socketId;
+        console.log(peerIdRef.current);
       }else if(msg.type === "joined"){
-        console.log(4);
+        console.log(5);
+        const currentRoomId = msg.roomId; // Use the value directly from message
+        setRoomId(currentRoomId);
         const configuration = {'iceServers': [{'urls': 'stun:stun.l.google.com:19302'}]}
         const peerConnection = new RTCPeerConnection(configuration);
-        socketRef.current?.addEventListener('message', async (message: any) => {
-          console.log(5);
-          if (message.answer) {
-            console.log(6);
-            const remoteDesc = new RTCSessionDescription(message.answer);
-            await peerConnection.setRemoteDescription(remoteDesc);
-          }else if (message.offer) {
-            console.log(7);
-            peerConnection.setRemoteDescription(new RTCSessionDescription(message.offer));
-            const answer = await peerConnection.createAnswer();
-            await peerConnection.setLocalDescription(answer);
-            socketRef.current?.send(JSON.stringify({
-              'answer': answer
-            }));
-          }else if (message.iceCandidate) {
-            console.log(8);
-            try {
-              await peerConnection.addIceCandidate(message.iceCandidate);
-            } catch (e) {
-              console.error('Error adding received ice candidate', e);
-            }
-          }
-        });
+        peerRef.current = peerConnection;
         peerConnection.addEventListener('icecandidate', event => {
-          console.log(9);
+          console.log(6);
           if (event.candidate) {
-            console.log(10);
             socketRef.current?.send(JSON.stringify({
-              'new-ice-candidate': event.candidate
+              "type": "new-ice-candidate",
+              "candidate": event.candidate,
+              "from": `${peerIdRef.current}`,
+              "to": `${msg.peerId}`,
+              "roomId": `${currentRoomId}` // Use the local variable instead of state
             }));
           }
         });
-        console.log(10);
+        console.log(7);
+        console.log(peerIdRef.current);
+        console.log(msg.roomId);
+        console.log(currentRoomId); // This will now show the correct value
         const offer = await peerConnection.createOffer();
         await peerConnection.setLocalDescription(offer);
         socketRef.current?.send(JSON.stringify({
-          "offer": offer 
+          "type": "offer",
+          "offer": offer,
+          "from": `${peerIdRef.current}`,
+          "to": `${msg.peerId}`,
+          "roomId": `${currentRoomId}` // Use the local variable instead of state
         }));
-        console.log(11);
         peerConnection.addEventListener('connectionstatechange', event => {
-          console.log(12);
           if (peerConnection.connectionState === 'connected') {
-            console.log(13);
             console.log("peers connected");
           }
-      });
+        });
+      }else if(msg.type === "created"){
+        console.log("created called");
+        console.log(msg.roomId);
+        console.log(msg.peerId);
+        console.log(peerIdRef.current);
+        setRoomId(msg.roomId);
+      }else if (msg.type === "offer") {
+        console.log(8);
+        const currentRoomId = msg.roomId; // Use roomId from the message
+        if(!peerRef.current){
+          console.log(9);
+          const configuration = {'iceServers': [{'urls': 'stun:stun.l.google.com:19302'}]}
+          peerRef.current = new RTCPeerConnection(configuration);
+          peerRef.current.addEventListener('icecandidate', event => {
+            console.log(10);
+            if (event.candidate) {
+              console.log(11);
+              socketRef.current?.send(JSON.stringify({
+                "type": "new-ice-candidate",
+                "candidate": event.candidate,
+                "from": `${peerIdRef.current}`,
+                "to": `${msg.from}`,
+                "roomId": `${currentRoomId}` // Use the local variable
+              }));
+            }
+          });
+        }
+        console.log(12);
+        await peerRef.current.setRemoteDescription(new RTCSessionDescription(msg.offer));
+        const answer = await peerRef.current.createAnswer();
+        await peerRef.current.setLocalDescription(answer);
+        console.log(peerIdRef.current);
+        console.log(msg.to);
+        console.log(currentRoomId); // This will show the correct value
+        socketRef.current?.send(JSON.stringify({
+          "type": "answer",
+          "answer": answer,
+          "from": `${peerIdRef.current}`,
+          "to": `${msg.from}`,
+          "roomId": `${currentRoomId}` // Use the local variable
+        }));
+      }else if (msg.type === "answer") {
+        console.log(13);
+        console.log(msg);
+        console.log(peerIdRef.current);
+        console.log(msg.roomId); // Log the roomId from the message
+        if(peerRef.current){
+          const remoteDesc = new RTCSessionDescription(msg.answer);
+          await peerRef.current.setRemoteDescription(remoteDesc);
+        }
+      }else if (msg.type === "new-ice-candidate") {
+        console.log(14);
+        console.log(msg);
+        console.log(peerIdRef.current);        
+        console.log(msg.roomId); // Log the roomId from the message
+        try {
+          if(peerRef.current && msg.candidate){
+            console.log(15);
+            await peerRef.current.addIceCandidate(msg.candidate);
+          }
+        } catch (e) {
+          console.error('Error adding received ice candidate', e);
+        }
       }
     }
   }
+  useEffect(()=>{
+    if(connection){
+      handleMessages();
+    }
+  },[connection])
 
   return (
     <div>
       <video id="localVideo" autoPlay playsInline controls={false}/>
       <button onClick={playVideoFromCamera}>Play Video from Camera</button>
       <button onClick={handleConnection}>Connect to ws server</button>
+      <input placeholder="Enter room id" value={roomId} onChange={(e) => setRoomId(e.target.value)} />
+      <button onClick={handleJoinRoom}>Join room</button>
+      <button onClick={handleCreateRoom}>Create room</button>
     </div>
   )
 }

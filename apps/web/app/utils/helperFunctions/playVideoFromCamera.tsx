@@ -4,7 +4,7 @@ export async function playVideoFromCamera() {
         const stream = await navigator.mediaDevices.getUserMedia(constraints);
         const videoElement = document.querySelector('video#localVideo');
         if(!videoElement){
-          console.log('videoElement is null');
+          // console.log('videoElement is null');
           return;
         }
         (videoElement as HTMLVideoElement).srcObject = stream;
