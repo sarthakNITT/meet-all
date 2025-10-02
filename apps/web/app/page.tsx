@@ -12,6 +12,8 @@ export default function Home () {
   const localStreamRef = useRef<MediaStream | null>(null);
   const [roomId, setRoomId] = useState<string>();
   const [connection, setConnection] = useState<boolean>(false);
+  const [videoEnabled, setVideoEnabled] = useState<boolean>(true);
+  const [audioEnabled, setAudioEnabled] = useState<boolean>(true);
   const openMediaDevices = async (constraints: MediaStreamConstraints) => {
     return await navigator.mediaDevices.getUserMedia(constraints);
   }
@@ -236,6 +238,27 @@ export default function Home () {
     "peerId": `${peerIdRef.current}`
    })) 
   }
+
+  function handleTurnOffVideo (){
+    if (localStreamRef.current) {
+      const videoTracks = localStreamRef.current.getVideoTracks();
+      videoTracks.forEach(track => {
+        track.enabled = !videoEnabled;
+      });
+      setVideoEnabled(!videoEnabled);
+    }
+  }
+
+  function handleTurnOffMike (){
+    if (localStreamRef.current) {
+      const audioTracks = localStreamRef.current.getAudioTracks();
+      audioTracks.forEach(track => {
+        track.enabled = !audioEnabled;
+      });
+      setAudioEnabled(!audioEnabled);
+    }
+  }
+
   useEffect(()=>{
     if(connection){
       handleMessages();
@@ -266,6 +289,8 @@ export default function Home () {
         <button onClick={handleJoinRoom}>Join room</button>
         <button onClick={handleCreateRoom}>Create room</button>
         <button onClick={handleLeaveRoom}>Leave room</button>
+        <button onClick={handleTurnOffVideo}>{videoEnabled ? 'Turn off video' : 'Turn on video'}</button>
+        <button onClick={handleTurnOffMike}>{audioEnabled ? 'Turn off mike' : 'Turn on mike'}</button>
       </div>
     </div>
   )
