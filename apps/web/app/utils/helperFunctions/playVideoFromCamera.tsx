@@ -5,10 +5,12 @@ export async function playVideoFromCamera() {
         const videoElement = document.querySelector('video#localVideo');
         if(!videoElement){
           // console.log('videoElement is null');
-          return;
+          return null;
         }
         (videoElement as HTMLVideoElement).srcObject = stream;
+        return stream;
     } catch(error) {
         console.error('Error opening video camera.', error);
+        return null;
     }
   }

@@ -9,10 +9,19 @@ export default function Home () {
   const socketRef = useRef<WebSocket | null>(null);
   const peerRef = useRef<RTCPeerConnection | null>(null);
   const peerIdRef = useRef(null);
+  const localStreamRef = useRef<MediaStream | null>(null);
   const [roomId, setRoomId] = useState<string>();
   const [connection, setConnection] = useState<boolean>(false);
   const openMediaDevices = async (constraints: MediaStreamConstraints) => {
     return await navigator.mediaDevices.getUserMedia(constraints);
+  }
+
+  const setupLocalStream = async () => {
+    const stream = await playVideoFromCamera();
+    if (stream) {
+      localStreamRef.current = stream;
+    }
+    return stream;
   }
 
   try {
@@ -85,6 +94,24 @@ export default function Home () {
         const configuration = {'iceServers': [{'urls': 'stun:stun.l.google.com:19302'}]}
         const peerConnection = new RTCPeerConnection(configuration);
         peerRef.current = peerConnection;
+        
+        // Get local media stream and add tracks to peer connection
+        const localStream = await setupLocalStream();
+        if (localStream) {
+          localStream.getTracks().forEach(track => {
+            peerConnection.addTrack(track, localStream);
+          });
+        }
+        
+        // Handle remote video stream
+        peerConnection.addEventListener('track', async (event) => {
+          const [remoteStream] = event.streams;
+          const remoteVideo = document.querySelector('#remoteVideo') as HTMLVideoElement;
+          if (remoteVideo && remoteStream) {
+            remoteVideo.srcObject = remoteStream;
+          }
+        });
+        
         peerConnection.addEventListener('icecandidate', event => {
           console.log(6);
           if (event.candidate) {
@@ -128,6 +155,24 @@ export default function Home () {
           console.log(9);
           const configuration = {'iceServers': [{'urls': 'stun:stun.l.google.com:19302'}]}
           peerRef.current = new RTCPeerConnection(configuration);
+          
+          // Get local media stream and add tracks to peer connection
+          const localStream = await setupLocalStream();
+          if (localStream) {
+            localStream.getTracks().forEach(track => {
+              peerRef.current!.addTrack(track, localStream);
+            });
+          }
+          
+          // Handle remote video stream
+          peerRef.current.addEventListener('track', async (event) => {
+            const [remoteStream] = event.streams;
+            const remoteVideo = document.querySelector('#remoteVideo') as HTMLVideoElement;
+            if (remoteVideo && remoteStream) {
+              remoteVideo.srcObject = remoteStream;
+            }
+          });
+          
           peerRef.current.addEventListener('icecandidate', event => {
             console.log(10);
             if (event.candidate) {
@@ -187,14 +232,30 @@ export default function Home () {
     }
   },[connection])
 
+  // Auto-start local video when component mounts
+  useEffect(() => {
+    setupLocalStream();
+  }, [])
+
   return (
     <div>
-      <video id="localVideo" autoPlay playsInline controls={false}/>
-      <button onClick={playVideoFromCamera}>Play Video from Camera</button>
-      <button onClick={handleConnection}>Connect to ws server</button>
-      <input placeholder="Enter room id" value={roomId} onChange={(e) => setRoomId(e.target.value)} />
-      <button onClick={handleJoinRoom}>Join room</button>
-      <button onClick={handleCreateRoom}>Create room</button>
+      <div style={{display: 'flex', gap: '20px', marginBottom: '20px'}}>
+        <div>
+          <h3>Local Video</h3>
+          <video id="localVideo" autoPlay playsInline controls={false} style={{width: '300px', height: '200px', border: '1px solid #ccc'}}/>
+        </div>
+        <div>
+          <h3>Remote Video</h3>
+          <video id="remoteVideo" autoPlay playsInline controls={false} style={{width: '300px', height: '200px', border: '1px solid #ccc'}}/>
+        </div>
+      </div>
+      <div style={{display: 'flex', gap: '10px', flexWrap: 'wrap'}}>
+        <button onClick={playVideoFromCamera}>Play Video from Camera</button>
+        <button onClick={handleConnection}>Connect to ws server</button>
+        <input placeholder="Enter room id" value={roomId} onChange={(e) => setRoomId(e.target.value)} />
+        <button onClick={handleJoinRoom}>Join room</button>
+        <button onClick={handleCreateRoom}>Create room</button>
+      </div>
     </div>
   )
 }
