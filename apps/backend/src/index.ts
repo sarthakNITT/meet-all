@@ -33,6 +33,33 @@ Bun.serve({
                 }
             }, 10000);
         },
+        close(ws){
+            for(const [roomId, peers] of rooms.entries()){
+                const originalLength = peers.length;
+                const updatedPeers = peers.filter((peer) => peer.peerSocket !== ws);
+                
+                if(updatedPeers.length !== originalLength){
+                    const removedPeer = peers.find((peer) => peer.peerSocket === ws);
+                    
+                    if(updatedPeers.length === 0){
+                        rooms.delete(roomId);
+                    } else {
+                        rooms.set(roomId, updatedPeers);
+                        
+                        if(removedPeer){
+                            updatedPeers.forEach((peer) => {
+                                peer.peerSocket.send(JSON.stringify({
+                                    type: "peer-left",
+                                    peerId: removedPeer.peerId,
+                                    roomId: roomId
+                                }));
+                            });
+                        }
+                    }
+                    break;
+                }
+            }
+        },
         message(ws, message: string){
             const msg = JSON.parse(message)
             if(msg.type === "join"){
@@ -112,6 +139,27 @@ Bun.serve({
                     to: msg.to,
                     roomId: msg.roomId
                 }))
+            }else if(msg.type === "leave"){
+                const room = rooms.get(msg.roomId);
+                if(room){
+                    const updatedRoom = room.filter((e) => e.peerId !== msg.peerId);
+                    
+                    if(updatedRoom.length === 0){
+                        rooms.delete(msg.roomId);
+                    } else {
+                        rooms.set(msg.roomId, updatedRoom);
+                        
+                        updatedRoom.forEach((peer) => {
+                            peer.peerSocket.send(JSON.stringify({
+                                type: "peer-left",
+                                peerId: msg.peerId,
+                                roomId: msg.roomId
+                            }));
+                        });
+                    }
+                    
+                    ws.close();
+                }
             }
         }
     }

@@ -223,8 +223,18 @@ export default function Home () {
         } catch (e) {
           console.error('Error adding received ice candidate', e);
         }
+      }else if(msg.type === "peer-left"){
+        console.log(msg);
       }
     }
+  }
+
+  async function handleLeaveRoom () {
+   socketRef.current?.send(JSON.stringify({
+    "type": "leave",
+    "roomId": `${roomId}`,
+    "peerId": `${peerIdRef.current}`
+   })) 
   }
   useEffect(()=>{
     if(connection){
@@ -255,6 +265,7 @@ export default function Home () {
         <input placeholder="Enter room id" value={roomId} onChange={(e) => setRoomId(e.target.value)} />
         <button onClick={handleJoinRoom}>Join room</button>
         <button onClick={handleCreateRoom}>Create room</button>
+        <button onClick={handleLeaveRoom}>Leave room</button>
       </div>
     </div>
   )
