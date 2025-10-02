@@ -4,16 +4,24 @@ import { useEffect, useRef, useState } from "react";
 import { getConnectedDevices } from "./utils/helperFunctions/getConnectedDevices";
 import { playVideoFromCamera } from "./utils/helperFunctions/playVideoFromCamera";
 import { updateCameraList } from "./utils/helperFunctions/updateCameraList";
+import { useMeetAll } from "./store/store";
 
 export default function Home () {
   const socketRef = useRef<WebSocket | null>(null);
   const peerRef = useRef<RTCPeerConnection | null>(null);
   const peerIdRef = useRef(null);
   const localStreamRef = useRef<MediaStream | null>(null);
-  const [roomId, setRoomId] = useState<string>();
-  const [connection, setConnection] = useState<boolean>(false);
-  const [videoEnabled, setVideoEnabled] = useState<boolean>(true);
-  const [audioEnabled, setAudioEnabled] = useState<boolean>(true);
+  const {
+    roomId,
+    connection,
+    videoEnabled,
+    audioEnabled,
+    setRoomId,
+    setConnection,
+    setVideoEnabled,
+    setAudioEnabled
+  } = useMeetAll();
+  
   const openMediaDevices = async (constraints: MediaStreamConstraints) => {
     return await navigator.mediaDevices.getUserMedia(constraints);
   }
