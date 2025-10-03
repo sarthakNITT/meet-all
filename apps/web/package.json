@@ -18,6 +18,8 @@
     "zustand": "^5.0.8"
   },
   "devDependencies": {
+    "@next/swc-darwin-arm64": "15.5.4",
+    "@next/swc-wasm-nodejs": "15.5.4",
     "@repo/eslint-config": "*",
     "@repo/typescript-config": "*",
     "@types/node": "^22.15.3",

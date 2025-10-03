@@ -5,6 +5,14 @@ import { getConnectedDevices } from "./utils/helperFunctions/getConnectedDevices
 import { playVideoFromCamera } from "./utils/helperFunctions/playVideoFromCamera";
 import { updateCameraList } from "./utils/helperFunctions/updateCameraList";
 import { useMeetAll } from "./store/store";
+import { handleTurnOffMike } from "./utils/helperFunctions/handleTurnOffMike";
+import { handleTurnOffVideo } from "./utils/helperFunctions/handleTurnOffVideo";
+import { handleCreateRoom } from "./utils/helperFunctions/handleCreateRoom";
+import { handleLeaveRoom } from "./utils/helperFunctions/handleLeaveRoom";
+import { handleJoinRoom } from "./utils/helperFunctions/handleJoinRoom";
+import { handleConnection } from "./utils/helperFunctions/handleConnection";
+import { setupLocalStream } from "./utils/helperFunctions/setupLocalStream";
+import { openMediaDevices } from "./utils/helperFunctions/openMediaDevices";
 
 export default function Home () {
   const socketRef = useRef<WebSocket | null>(null);
@@ -21,18 +29,6 @@ export default function Home () {
     setVideoEnabled,
     setAudioEnabled
   } = useMeetAll();
-  
-  const openMediaDevices = async (constraints: MediaStreamConstraints) => {
-    return await navigator.mediaDevices.getUserMedia(constraints);
-  }
-
-  const setupLocalStream = async () => {
-    const stream = await playVideoFromCamera();
-    if (stream) {
-      localStreamRef.current = stream;
-    }
-    return stream;
-  }
 
   try {
     const stream = openMediaDevices({'video':true,'audio':true});
@@ -52,37 +48,6 @@ export default function Home () {
     updateCameraList(newCameraList);
   });
 
-  async function handleConnection () {
-    console.log(1);
-    const socket = new WebSocket("ws://localhost:8080");
-    socketRef.current = socket;
-    setConnection(true);
-  }
-
-  function handleJoinRoom () {
-    console.log(4);
-    console.log(roomId);
-    console.log(peerIdRef.current);
-    socketRef.current?.send(JSON.stringify({
-      "type": "join",
-      "roomId": `${roomId}`,
-      "peerId": `${peerIdRef.current}`
-    }))
-  }
-  function handleCreateRoom () {
-    console.log(4);
-    let generateId = "";
-    const characters = "qwertyuiopasdfghjklzxcvbnmQWERTYUIOPASDFGHJKLZXCVBNM1234567890";
-    for(let i = 0; i < 8; i++){
-      generateId += characters.charAt(Math.floor(Math.random() * characters.length));
-    }
-    socketRef.current?.send(JSON.stringify({
-      "type": "create",
-      "peerId": `${peerIdRef.current}`,
-      "roomId": `${generateId}`
-    }))
-  }
-  
   async function handleMessages () {
     if(!socketRef.current){
       console.log("socketref.current is null");
@@ -106,7 +71,7 @@ export default function Home () {
         peerRef.current = peerConnection;
         
         // Get local media stream and add tracks to peer connection
-        const localStream = await setupLocalStream();
+        const localStream = await setupLocalStream(localStreamRef);
         if (localStream) {
           localStream.getTracks().forEach(track => {
             peerConnection.addTrack(track, localStream);
@@ -167,7 +132,7 @@ export default function Home () {
           peerRef.current = new RTCPeerConnection(configuration);
           
           // Get local media stream and add tracks to peer connection
-          const localStream = await setupLocalStream();
+          const localStream = await setupLocalStream(localStreamRef);
           if (localStream) {
             localStream.getTracks().forEach(track => {
               peerRef.current!.addTrack(track, localStream);
@@ -239,34 +204,6 @@ export default function Home () {
     }
   }
 
-  async function handleLeaveRoom () {
-   socketRef.current?.send(JSON.stringify({
-    "type": "leave",
-    "roomId": `${roomId}`,
-    "peerId": `${peerIdRef.current}`
-   })) 
-  }
-
-  function handleTurnOffVideo (){
-    if (localStreamRef.current) {
-      const videoTracks = localStreamRef.current.getVideoTracks();
-      videoTracks.forEach(track => {
-        track.enabled = !videoEnabled;
-      });
-      setVideoEnabled(!videoEnabled);
-    }
-  }
-
-  function handleTurnOffMike (){
-    if (localStreamRef.current) {
-      const audioTracks = localStreamRef.current.getAudioTracks();
-      audioTracks.forEach(track => {
-        track.enabled = !audioEnabled;
-      });
-      setAudioEnabled(!audioEnabled);
-    }
-  }
-
   useEffect(()=>{
     if(connection){
       handleMessages();
@@ -275,7 +212,7 @@ export default function Home () {
 
   // Auto-start local video when component mounts
   useEffect(() => {
-    setupLocalStream();
+    setupLocalStream(localStreamRef);
   }, [])
 
   return (
@@ -292,13 +229,13 @@ export default function Home () {
       </div>
       <div style={{display: 'flex', gap: '10px', flexWrap: 'wrap'}}>
         <button onClick={playVideoFromCamera}>Play Video from Camera</button>
-        <button onClick={handleConnection}>Connect to ws server</button>
+        <button onClick={()=>handleConnection(socketRef, setConnection)}>Connect to ws server</button>
         <input placeholder="Enter room id" value={roomId} onChange={(e) => setRoomId(e.target.value)} />
-        <button onClick={handleJoinRoom}>Join room</button>
-        <button onClick={handleCreateRoom}>Create room</button>
-        <button onClick={handleLeaveRoom}>Leave room</button>
-        <button onClick={handleTurnOffVideo}>{videoEnabled ? 'Turn off video' : 'Turn on video'}</button>
-        <button onClick={handleTurnOffMike}>{audioEnabled ? 'Turn off mike' : 'Turn on mike'}</button>
+        <button onClick={()=>handleJoinRoom(socketRef, roomId, peerIdRef)}>Join room</button>
+        <button onClick={()=>handleCreateRoom(socketRef, peerIdRef)}>Create room</button>
+        <button onClick={()=>handleLeaveRoom(socketRef, roomId, peerIdRef, peerRef)}>Leave room</button>
+        <button onClick={()=>handleTurnOffVideo(localStreamRef, videoEnabled, setVideoEnabled)}>{videoEnabled ? 'Turn off video' : 'Turn on video'}</button>
+        <button onClick={()=>handleTurnOffMike(localStreamRef, audioEnabled, setAudioEnabled)}>{audioEnabled ? 'Turn off mike' : 'Turn on mike'}</button>
       </div>
     </div>
   )
