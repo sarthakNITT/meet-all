@@ -212,6 +212,7 @@ export default function Home () {
 
   // Auto-start local video when component mounts
   useEffect(() => {
+    console.log("locally called");
     setupLocalStream(localStreamRef);
   }, [])
 
