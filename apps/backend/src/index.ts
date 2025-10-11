@@ -2,11 +2,11 @@ import { mediaCodecs, worker } from "./mediasoup";
 import { types as mediasoupTypes } from "mediasoup";
 
 interface peer {
-    peerId: string,
-    peerSocket: any
+  peerId: string,
+  peerSocket: any
 }
 type roomMap = {
-  router: mediasoupTypes.Router, 
+  router?: mediasoupTypes.Router, 
   peer: peer[]
 }
 
@@ -44,16 +44,18 @@ Bun.serve({
         },
         close(ws){
             for(const [roomId, peers] of rooms.entries()){
-                const originalLength = peers.length;
-                const updatedPeers = peers.filter((peer) => peer.peerSocket !== ws);
+                const originalLength = peers.peer.length;
+                const updatedPeers = peers.peer.filter((peer) => peer.peerSocket !== ws);
                 
                 if(updatedPeers.length !== originalLength){
-                    const removedPeer = peers.find((peer) => peer.peerSocket === ws);
+                    const removedPeer = peers.peer.find((peer) => peer.peerSocket === ws);
                     
                     if(updatedPeers.length === 0){
                         rooms.delete(roomId);
                     } else {
-                        rooms.set(roomId, updatedPeers);
+                        rooms.set(roomId, {
+                          peer: updatedPeers
+                        });
                         
                         if(removedPeer){
                             updatedPeers.forEach((peer) => {
@@ -76,15 +78,15 @@ Bun.serve({
                 console.log(msg.roomId);
                 console.log(msg.peerId);
                 const newPeer = {
-                    peerId: msg.peerId,
-                    peerSocket: ws
+                  peerId: msg.peerId,
+                  peerSocket: ws
                 }
                 const existingPeers = rooms.get(msg.roomId);
                 if(!existingPeers){
-                    console.log("room doesn't exists");
-                    return;
+                  console.log("room doesn't exists");
+                  return;
                 }
-                existingPeers.push(newPeer);
+                existingPeers.peer.push(newPeer);
                 rooms.set(msg.roomId, existingPeers);
                 checkJoinReq = true;
                 const router = await worker.createRouter({ mediaCodecs: mediaCodecs });
@@ -222,7 +224,7 @@ Bun.serve({
                 });
                 const room = rooms.get(msg.roomId);
                 console.log(room);
-                const sendMessageTo = room?.filter((e) => e.peerId !== msg.peerId);
+                const sendMessageTo = room?.peer.filter((e) => e.peerId !== msg.peerId);
                 console.log(sendMessageTo);
                 sendMessageTo?.forEach((e) => {
                     e.peerSocket.send(JSON.stringify({
@@ -238,12 +240,15 @@ Bun.serve({
                 console.log(msg.roomId);
                 console.log(msg.peerId);
                 const creatorPeer: peer = {
-                    peerId: msg.peerId,
-                    peerSocket: ws
+                  peerId: msg.peerId,
+                  peerSocket: ws
                 };
-                rooms.set(msg.roomId, [creatorPeer]);
                 checkJoinReq = true;
                 const router = await worker.createRouter({ mediaCodecs: mediaCodecs });
+                rooms.set(msg.roomId, {
+                  router,
+                  peer: [creatorPeer]
+                });
                 const transport = await router.createPlainTransport({
                     listenInfo : { protocol: "udp", ip: "a1:22:aA::08" },
                     rtcpMux    : true,
@@ -388,7 +393,7 @@ Bun.serve({
                 console.log(msg);
                 const room = rooms.get(msg.roomId);
                 console.log(room);
-                const peer = room?.find((e) => e.peerId === msg.to)
+                const peer = room?.peer.find((e) => e.peerId === msg.to)
                 console.log(peer?.peerId);
                 console.log(msg.to);
                 peer?.peerSocket.send(JSON.stringify({
@@ -401,7 +406,7 @@ Bun.serve({
             }else if(msg.type === "answer"){
                 console.log(msg);
                 const room = rooms.get(msg.roomId);
-                const peer = room?.find((e) => e.peerId === msg.to)
+                const peer = room?.peer.find((e) => e.peerId === msg.to)
                 peer?.peerSocket.send(JSON.stringify({
                     type: "answer",
                     answer: msg.answer,
@@ -412,7 +417,7 @@ Bun.serve({
             }else if(msg.type === "new-ice-candidate"){
                 console.log(msg);
                 const room = rooms.get(msg.roomId);
-                const peer = room?.find((e) => e.peerId === msg.to)
+                const peer = room?.peer.find((e) => e.peerId === msg.to)
                 peer?.peerSocket.send(JSON.stringify({
                     type: "new-ice-candidate",
                     candidate: msg.candidate,
@@ -423,12 +428,14 @@ Bun.serve({
             }else if(msg.type === "leave"){
                 const room = rooms.get(msg.roomId);
                 if(room){
-                    const updatedRoom = room.filter((e) => e.peerId !== msg.peerId);
+                    const updatedRoom = room.peer.filter((e) => e.peerId !== msg.peerId);
                     
                     if(updatedRoom.length === 0){
                         rooms.delete(msg.roomId);
                     } else {
-                        rooms.set(msg.roomId, updatedRoom);
+                        rooms.set(msg.roomId, {
+                          peer: updatedRoom
+                        });
                         
                         updatedRoom.forEach((peer) => {
                             peer.peerSocket.send(JSON.stringify({
