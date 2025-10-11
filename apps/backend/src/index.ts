@@ -1,11 +1,18 @@
 import { mediaCodecs, worker } from "./mediasoup";
+import { types as mediasoupTypes } from "mediasoup";
 
-let checkJoinReq = false;
 interface peer {
     peerId: string,
     peerSocket: any
 }
-const rooms = new Map<string, peer[]>();
+type roomMap = {
+  router: mediasoupTypes.Router, 
+  peer: peer[]
+}
+
+let checkJoinReq = false;
+const rooms = new Map<string, roomMap>();
+
 Bun.serve({
     port: 8080,
     fetch(req, server) {
