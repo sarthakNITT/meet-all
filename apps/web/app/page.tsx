@@ -13,6 +13,7 @@ import { handleJoinRoom } from "./utils/helperFunctions/handleJoinRoom";
 import { handleConnection } from "./utils/helperFunctions/handleConnection";
 import { setupLocalStream } from "./utils/helperFunctions/setupLocalStream";
 import { openMediaDevices } from "./utils/helperFunctions/openMediaDevices";
+import mediasoupClient from "mediasoup-client";
 
 export default function Home () {
   const socketRef = useRef<WebSocket | null>(null);
@@ -117,7 +118,27 @@ export default function Home () {
             console.log("peers connected");
           }
         });
+        let device;
+        try{
+          device = new mediasoupClient.Device();
+        } catch (error) {
+            console.warn(error);
+        }
+        if(device === undefined){
+          console.log("device is undefined");
+        }
+        const deviceLoad = await device?.load( msg.roomRouterRtpCapabilities );
       }else if(msg.type === "created"){
+        let device;
+        try{
+          device = new mediasoupClient.Device();
+        } catch (error) {
+            console.warn(error);
+        }
+        if(device === undefined){
+          console.log("device is undefined");
+        }
+        const deviceLoad = await device?.load( msg.roomRouterRtpCapabilities );
         console.log("created called");
         console.log(msg.roomId);
         console.log(msg.peerId);

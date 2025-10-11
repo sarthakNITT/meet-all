@@ -1,3 +1,5 @@
+import { mediaCodecs, worker } from "./mediasoup";
+
 let checkJoinReq = false;
 interface peer {
     peerId: string,
@@ -60,7 +62,7 @@ Bun.serve({
                 }
             }
         },
-        message(ws, message: string){
+        async message(ws, message: string){
             const msg = JSON.parse(message)
             if(msg.type === "join"){
                 console.log(1);
@@ -78,6 +80,139 @@ Bun.serve({
                 existingPeers.push(newPeer);
                 rooms.set(msg.roomId, existingPeers);
                 checkJoinReq = true;
+                const router = await worker.createRouter({ mediaCodecs: mediaCodecs });
+                const transport = await router.createPlainTransport({
+                    listenInfo : { protocol: "udp", ip: "a1:22:aA::08" },
+                    rtcpMux    : true,
+                    comedia    : true
+                });
+                const producer = await transport.produce({
+                    kind          : "video",
+                    rtpParameters : {
+                        mid    : "1",
+                        codecs : [
+                          {
+                            mimeType    : "video/VP8",
+                            payloadType : 101,
+                            clockRate   : 90000,
+                            rtcpFeedback :
+                            [
+                              { type: "nack" },
+                              { type: "nack", parameter: "pli" },
+                              { type: "ccm", parameter: "fir" },
+                              { type: "goog-remb" }
+                            ]
+                          },
+                          {
+                            mimeType    : "video/rtx",
+                            payloadType : 102,
+                            clockRate   : 90000,
+                            parameters  : { apt: 101 }
+                          }
+                        ],
+                        headerExtensions : [
+                          {
+                            id  : 2, 
+                            uri : "urn:ietf:params:rtp-hdrext:sdes:mid"
+                          },
+                          { 
+                            id  : 3, 
+                            uri : "urn:ietf:params:rtp-hdrext:sdes:rtp-stream-id"
+                          },
+                          { 
+                            id  : 5, 
+                            uri: "urn:3gpp:video-orientation" 
+                          },
+                          { 
+                            id  : 6, 
+                            uri : "http://www.webrtc.org/experiments/rtp-hdrext/abs-send-time"
+                          }
+                        ],
+                        encodings : [
+                          { rid: "r0", maxBitrate: 100000 },
+                          { rid: "r1", maxBitrate: 300000 },
+                          { rid: "r2", maxBitrate: 900000 }
+                        ],
+                        rtcp : {
+                          cname : "Zjhd656aqfoo"
+                        }
+                    }
+                });
+                const check = await router.canConsume({producerId: producer.id, rtpCapabilities: router.rtpCapabilities});
+                if(!check){
+                    console.log("check failed");
+                    return;
+                }
+                const consumer = await transport.consume({
+                        producerId      : "a7a955cf-fe67-4327-bd98-bbd85d7e2ba3",
+                        rtpCapabilities : {
+                        codecs : [
+                          {
+                            mimeType             : "audio/opus",
+                            kind                 : "audio",
+                            clockRate            : 48000,
+                            preferredPayloadType : 100,
+                            channels             : 2
+                          },
+                          {
+                            mimeType             : "video/H264",
+                            kind                 : "video",
+                            clockRate            : 90000,
+                            preferredPayloadType : 101,
+                            rtcpFeedback         :
+                            [
+                              { type: "nack" },
+                              { type: "nack", parameter: "pli" },
+                              { type: "ccm", parameter: "fir" },
+                              { type: "goog-remb" }
+                            ],
+                            parameters :
+                            {
+                              "level-asymmetry-allowed" : 1,
+                              "packetization-mode"      : 1,
+                              "profile-level-id"        : "4d0032"
+                            }
+                          },
+                          {
+                            mimeType             : "video/rtx",
+                            kind                 : "video",
+                            clockRate            : 90000,
+                            preferredPayloadType : 102,
+                            rtcpFeedback         : [],
+                            parameters           :
+                            {
+                              apt : 101
+                            }
+                          }
+                        ],
+                        headerExtensions : [
+                          {
+                            kind             : "video",
+                            uri              : "http://www.webrtc.org/experiments/rtp-hdrext/abs-send-time", // eslint-disable-line max-len
+                            preferredId      : 4,
+                            preferredEncrypt : false
+                          },
+                          {
+                            kind             : "audio",
+                            uri              : "urn:ietf:params:rtp-hdrext:ssrc-audio-level",
+                            preferredId      : 8,
+                            preferredEncrypt : false
+                          },
+                          {
+                            kind             : "video",
+                            uri              : "urn:3gpp:video-orientation",
+                            preferredId      : 9,
+                            preferredEncrypt : false
+                          },
+                          {
+                            kind             : "video",
+                            uri              : "urn:ietf:params:rtp-hdrext:toffset",
+                            preferredId      : 10,
+                            preferredEncrypt : false
+                          }
+                        ]
+                    }
+                });
                 const room = rooms.get(msg.roomId);
                 console.log(room);
                 const sendMessageTo = room?.filter((e) => e.peerId !== msg.peerId);
@@ -86,7 +221,10 @@ Bun.serve({
                     e.peerSocket.send(JSON.stringify({
                         "type": "joined",
                         "peerId": `${msg.peerId}`,
-                        "roomId": `${msg.roomId}`
+                        "peerTransport": `${transport}`,
+                        "roomId": `${msg.roomId}`,
+                        "roomRouterRtpCapabilities": `${router.rtpCapabilities}`,
+                        "producer": `${producer}`
                     }))
                 })
             }else if(msg.type === "create"){
@@ -98,10 +236,146 @@ Bun.serve({
                 };
                 rooms.set(msg.roomId, [creatorPeer]);
                 checkJoinReq = true;
+                const router = await worker.createRouter({ mediaCodecs: mediaCodecs });
+                const transport = await router.createPlainTransport({
+                    listenInfo : { protocol: "udp", ip: "a1:22:aA::08" },
+                    rtcpMux    : true,
+                    comedia    : true
+                });
+                const producer = await transport.produce({
+                    kind          : "video",
+                    rtpParameters : {
+                        mid    : "1",
+                        codecs : [
+                          {
+                            mimeType    : "video/VP8",
+                            payloadType : 101,
+                            clockRate   : 90000,
+                            rtcpFeedback :
+                            [
+                              { type: "nack" },
+                              { type: "nack", parameter: "pli" },
+                              { type: "ccm", parameter: "fir" },
+                              { type: "goog-remb" }
+                            ]
+                          },
+                          {
+                            mimeType    : "video/rtx",
+                            payloadType : 102,
+                            clockRate   : 90000,
+                            parameters  : { apt: 101 }
+                          }
+                        ],
+                        headerExtensions : [
+                          {
+                            id  : 2, 
+                            uri : "urn:ietf:params:rtp-hdrext:sdes:mid"
+                          },
+                          { 
+                            id  : 3, 
+                            uri : "urn:ietf:params:rtp-hdrext:sdes:rtp-stream-id"
+                          },
+                          { 
+                            id  : 5, 
+                            uri: "urn:3gpp:video-orientation" 
+                          },
+                          { 
+                            id  : 6, 
+                            uri : "http://www.webrtc.org/experiments/rtp-hdrext/abs-send-time"
+                          }
+                        ],
+                        encodings : [
+                          { rid: "r0", maxBitrate: 100000 },
+                          { rid: "r1", maxBitrate: 300000 },
+                          { rid: "r2", maxBitrate: 900000 }
+                        ],
+                        rtcp : {
+                          cname : "Zjhd656aqfoo"
+                        }
+                    }
+                });
+                const check = await router.canConsume({producerId: producer.id, rtpCapabilities: router.rtpCapabilities});
+                if(!check){
+                    console.log("check failed");
+                    return;
+                }
+                const consumer = await transport.consume({
+                    producerId      : "a7a955cf-fe67-4327-bd98-bbd85d7e2ba3",
+                    rtpCapabilities : {
+                    codecs : [
+                      {
+                        mimeType             : "audio/opus",
+                        kind                 : "audio",
+                        clockRate            : 48000,
+                        preferredPayloadType : 100,
+                        channels             : 2
+                      },
+                      {
+                        mimeType             : "video/H264",
+                        kind                 : "video",
+                        clockRate            : 90000,
+                        preferredPayloadType : 101,
+                        rtcpFeedback         :
+                        [
+                          { type: "nack" },
+                          { type: "nack", parameter: "pli" },
+                          { type: "ccm", parameter: "fir" },
+                          { type: "goog-remb" }
+                        ],
+                        parameters :
+                        {
+                          "level-asymmetry-allowed" : 1,
+                          "packetization-mode"      : 1,
+                          "profile-level-id"        : "4d0032"
+                        }
+                      },
+                      {
+                        mimeType             : "video/rtx",
+                        kind                 : "video",
+                        clockRate            : 90000,
+                        preferredPayloadType : 102,
+                        rtcpFeedback         : [],
+                        parameters           :
+                        {
+                          apt : 101
+                        }
+                      }
+                    ],
+                    headerExtensions : [
+                      {
+                        kind             : "video",
+                        uri              : "http://www.webrtc.org/experiments/rtp-hdrext/abs-send-time", // eslint-disable-line max-len
+                        preferredId      : 4,
+                        preferredEncrypt : false
+                      },
+                      {
+                        kind             : "audio",
+                        uri              : "urn:ietf:params:rtp-hdrext:ssrc-audio-level",
+                        preferredId      : 8,
+                        preferredEncrypt : false
+                      },
+                      {
+                        kind             : "video",
+                        uri              : "urn:3gpp:video-orientation",
+                        preferredId      : 9,
+                        preferredEncrypt : false
+                      },
+                      {
+                        kind             : "video",
+                        uri              : "urn:ietf:params:rtp-hdrext:toffset",
+                        preferredId      : 10,
+                        preferredEncrypt : false
+                      }
+                    ]
+                }
+            });
                 ws.send(JSON.stringify({
                     type: "created",
                     roomId: msg.roomId,
-                    peerId: msg.peerId
+                    peerId: msg.peerId,
+                    peerTransport: transport,
+                    roomRouterRtpCapabilities: router.rtpCapabilities,
+                    producer: producer
                 }));
             }else if(msg.type === "offer"){
                 console.log(msg);

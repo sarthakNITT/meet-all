@@ -3,7 +3,7 @@
   "include": [
     "**/*.ts",
     "**/*.tsx"
-  ],
+, "src/mediasoup-config.js"  ],
   "exclude": [
     "node_modules"
   ]
