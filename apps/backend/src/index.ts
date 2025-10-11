@@ -53,11 +53,15 @@ Bun.serve({
                 
                 if(updatedPeers.length !== originalLength){
                     const removedPeer = peers.peer.find((peer) => peer.peerSocket === ws);
-                    
+                    if (removedPeer) {
+                      removedPeer.producers?.forEach(p => p.close());
+                      removedPeer.consumers?.forEach(c => c.close());
+                    }                
                     if(updatedPeers.length === 0){
-                        rooms.delete(roomId);
+                      rooms.delete(roomId);
                     } else {
                         rooms.set(roomId, {
+                          router: peers.router,
                           peer: updatedPeers
                         });
                         
@@ -162,11 +166,14 @@ Bun.serve({
                 const room = rooms.get(msg.roomId);
                 if(room){
                     const updatedRoom = room.peer.filter((e) => e.peerId !== msg.peerId);
-                    
+                    const leavingPeer = room.peer.find(e => e.peerId === msg.peerId);
+                    leavingPeer?.producers?.forEach(p => p.close());
+                    leavingPeer?.consumers?.forEach(c => c.close());
                     if(updatedRoom.length === 0){
                         rooms.delete(msg.roomId);
                     } else {
                         rooms.set(msg.roomId, {
+                          router: room.router,
                           peer: updatedRoom
                         });
                         
@@ -198,17 +205,14 @@ Bun.serve({
                 console.log("router is undefined");
                 return;
               }
-              const transport = await router.createWebRtcTransport(
-                {
-                  listenInfos :
-                  [
-                    {
-                      protocol         : "udp", 
-                      ip               : "192.168.0.111", 
-                      announcedAddress : "88.12.10.41"
-                    }
-                  ]
-                });
+              const transport = await router.createWebRtcTransport({
+                listenIps: [
+                  { ip: "0.0.0.0", announcedIp: "88.12.10.41" }
+                ],
+                enableUdp: true,
+                enableTcp: true,
+                preferUdp: true
+              });
                 const peer = getRoom?.peer.find((e) => e.peerId === msg.peerId);
                 if(peer){
                   peer.sendTransport = transport;
@@ -230,22 +234,19 @@ Bun.serve({
                 console.log("router is undefined");
                 return;
               }
-              const transport = await router?.createWebRtcTransport(
-                {
-                  listenInfos :
-                  [
-                    {
-                      protocol         : "udp", 
-                      ip               : "192.168.0.111", 
-                      announcedAddress : "88.12.10.41"
-                    }
-                  ]
-                });
+              const transport = await router.createWebRtcTransport({
+                listenIps: [
+                  { ip: "0.0.0.0", announcedIp: "88.12.10.41" }
+                ],
+                enableUdp: true,
+                enableTcp: true,
+                preferUdp: true
+              });
                 if(peer){
                   peer.recvTransport = transport;
                 }
                 peer?.peerSocket.send(JSON.stringify({
-                  type: "recieve-transport",
+                  type: "receive-transport",
                   transport: {
                     id: transport.id,
                     iceParameters: transport.iceParameters,
@@ -257,7 +258,11 @@ Bun.serve({
               const getRoom = rooms.get(msg.roomId);
               const peer = getRoom?.peer.find((e) => e.peerId === msg.peerId);
               const transport = peer?.sendTransport;
-              await transport?.connect({dtlsParameters: msg.dtlsParameters});
+              try {
+                await transport?.connect({ dtlsParameters: msg.dtlsParameters });
+              } catch (err) {
+                console.error("DTLS connect error:", err);
+              }
               peer?.peerSocket.send(JSON.stringify({
                 type: "transport-connect-successfull"
               }))
@@ -265,7 +270,11 @@ Bun.serve({
               const getRoom = rooms.get(msg.roomId);
               const peer = getRoom?.peer.find((e) => e.peerId === msg.peerId);
               const transport = peer?.recvTransport;
-              await transport?.connect({dtlsParameters: msg.dtlsParameters});
+              try {
+                await transport?.connect({ dtlsParameters: msg.dtlsParameters });
+              } catch (err) {
+                console.error("DTLS connect error:", err);
+              }
               peer?.peerSocket.send(JSON.stringify({
                 type: "recv-transport-connect-successfull"
               }))
