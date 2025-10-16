@@ -13,12 +13,14 @@ import { handleJoinRoom } from "./utils/helperFunctions/handleJoinRoom";
 import { handleConnection } from "./utils/helperFunctions/handleConnection";
 import { setupLocalStream } from "./utils/helperFunctions/setupLocalStream";
 import { openMediaDevices } from "./utils/helperFunctions/openMediaDevices";
+import * as mediasoupClient from "mediasoup-client";
 
 export default function Home () {
   const socketRef = useRef<WebSocket | null>(null);
   const peerRef = useRef<RTCPeerConnection | null>(null);
   const peerIdRef = useRef(null);
   const localStreamRef = useRef<MediaStream | null>(null);
+  const deviceRef = useRef<mediasoupClient.types.Device | null>(null);
   const {
     roomId,
     connection,
@@ -59,6 +61,13 @@ export default function Home () {
       console.log(msg);
       if(msg.type === "connection"){
         console.log(3);
+        let device;
+        try{
+          device = await mediasoupClient.Device.factory();
+          deviceRef.current = device;
+        }catch (error){
+          console.log(error);
+        }
         console.log(msg.socketId);
         peerIdRef.current = msg.socketId;
         console.log(peerIdRef.current);
@@ -117,12 +126,22 @@ export default function Home () {
             console.log("peers connected");
           }
         });
+        if(msg.peerId !== peerIdRef.current){
+          socketRef.current?.send(JSON.stringify({
+            "type": "getRouterRtpCapabilities",
+            "roomId": `${roomId}`
+          }))
+        }
       }else if(msg.type === "created"){
         console.log("created called");
         console.log(msg.roomId);
         console.log(msg.peerId);
         console.log(peerIdRef.current);
         setRoomId(msg.roomId);
+        socketRef.current?.send(JSON.stringify({
+          "type": "getRouterRtpCapabilities",
+          "roomId": `${roomId}`
+        }))
       }else if (msg.type === "offer") {
         console.log(8);
         const currentRoomId = msg.roomId; // Use roomId from the message
@@ -200,6 +219,32 @@ export default function Home () {
         }
       }else if(msg.type === "peer-left"){
         console.log(msg);
+      }else if(msg.type === "send-rtpCapabilities"){
+        if(deviceRef.current === null){
+          console.log("deviceRef is null");
+          return;
+        }
+        await deviceRef.current.load({
+          routerRtpCapabilities: msg.rtpCapabilities
+        })
+        socketRef.current?.send(JSON.stringify({
+          "type": "createTransport"
+        }))
+      }else if(msg.type === "send-transport"){
+        deviceRef.current?.createSendTransport(msg.transport)
+        socketRef.current?.send(JSON.stringify({
+          "type": "connectTransport"
+        }))
+      }else if(msg.type === "receive-transport"){
+        deviceRef.current?.createRecvTransport(msg.transport)
+        socketRef.current?.send(JSON.stringify({
+          "type": "connectRecvTransport"
+        }))
+      }else if(msg.type === "transport-connect-successfull"){
+        console.log("transport-connect-successfull");
+        socketRef.current?.send(JSON.stringify({
+          "type": "produce"
+        }))
       }
     }
   }

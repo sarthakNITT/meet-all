@@ -124,7 +124,7 @@ Bun.serve({
                 ws.send(JSON.stringify({
                     type: "created",
                     roomId: msg.roomId,
-                    peerId: msg.peerId,
+                    peerId: msg.peerId
                 }));
             }else if(msg.type === "offer"){
                 console.log(msg);
@@ -191,17 +191,20 @@ Bun.serve({
             }else if(msg.type === "getRouterRtpCapabilities"){
               const getRoom = rooms.get(msg.roomId);
               const router = getRoom?.router;
-              const peer = getRoom?.peer.find((e) => e.peerId === msg.peerId);
-              peer?.peerSocket.send(JSON.stringify({
+              if (!router) {
+                console.log("Router not found for room:", msg.roomId);
+                return;
+              }
+              ws.send(JSON.stringify({
                 type: "send-rtpCapabilities",
-                rtpCapabilities: router?.rtpCapabilities,
+                rtpCapabilities: router.rtpCapabilities,
                 peerId: msg.peerId,
                 roomId: msg.roomId
-              }))
+              }));
             }else if(msg.type === "createTransport"){
               const getRoom = rooms.get(msg.roomId);
               const router = getRoom?.router;
-              if(router === undefined){
+              if(!router){
                 console.log("router is undefined");
                 return;
               }
@@ -213,24 +216,26 @@ Bun.serve({
                 enableTcp: true,
                 preferUdp: true
               });
-                const peer = getRoom?.peer.find((e) => e.peerId === msg.peerId);
-                if(peer){
-                  peer.sendTransport = transport;
-                }
-                peer?.peerSocket.send(JSON.stringify({
-                  type: "send-transport",
-                  transport: {
-                    id: transport.id,
-                    iceParameters: transport.iceParameters,
-                    iceCandidates: transport.iceCandidates,
-                    dtlsParameters: transport.dtlsParameters
-                  }
-                }))
+              const peer = getRoom?.peer.find((e) => e.peerId === msg.peerId);
+              if(peer){
+                peer.sendTransport = transport;
+              }
+              ws.send(JSON.stringify({
+                type: "send-transport",
+                transport: {
+                  id: transport.id,
+                  iceParameters: transport.iceParameters,
+                  iceCandidates: transport.iceCandidates,
+                  dtlsParameters: transport.dtlsParameters
+                },
+                peerId: msg.peerId,
+                roomId: msg.roomId
+              }));
             }else if(msg.type === "recvTransport"){
               const getRoom = rooms.get(msg.roomId);
               const peer = getRoom?.peer.find((e) => e.peerId === msg.peerId);
               const router = getRoom?.router;
-              if(router === undefined){
+              if(!router){
                 console.log("router is undefined");
                 return;
               }
@@ -242,47 +247,53 @@ Bun.serve({
                 enableTcp: true,
                 preferUdp: true
               });
-                if(peer){
-                  peer.recvTransport = transport;
-                }
-                peer?.peerSocket.send(JSON.stringify({
-                  type: "receive-transport",
-                  transport: {
-                    id: transport.id,
-                    iceParameters: transport.iceParameters,
-                    iceCandidates: transport.iceCandidates,
-                    dtlsParameters: transport.dtlsParameters
-                  }
-                }))
+              if(peer){
+                peer.recvTransport = transport;
+              }
+              ws.send(JSON.stringify({
+                type: "receive-transport",
+                transport: {
+                  id: transport.id,
+                  iceParameters: transport.iceParameters,
+                  iceCandidates: transport.iceCandidates,
+                  dtlsParameters: transport.dtlsParameters
+                },
+                peerId: msg.peerId,
+                roomId: msg.roomId
+              }));
             }else if(msg.type === "connectTransport"){
               const getRoom = rooms.get(msg.roomId);
               const peer = getRoom?.peer.find((e) => e.peerId === msg.peerId);
               const transport = peer?.sendTransport;
               try {
                 await transport?.connect({ dtlsParameters: msg.dtlsParameters });
+                ws.send(JSON.stringify({
+                  type: "transport-connect-successfull",
+                  roomId: msg.roomId,
+                  peerId: msg.peerId
+                }));
               } catch (err) {
                 console.error("DTLS connect error:", err);
               }
-              peer?.peerSocket.send(JSON.stringify({
-                type: "transport-connect-successfull"
-              }))
             }else if(msg.type === "connectRecvTransport"){
               const getRoom = rooms.get(msg.roomId);
               const peer = getRoom?.peer.find((e) => e.peerId === msg.peerId);
               const transport = peer?.recvTransport;
               try {
                 await transport?.connect({ dtlsParameters: msg.dtlsParameters });
+                ws.send(JSON.stringify({
+                  type: "recv-transport-connect-successfull",
+                  roomId: msg.roomId,
+                  peerId: msg.peerId
+                }));
               } catch (err) {
                 console.error("DTLS connect error:", err);
               }
-              peer?.peerSocket.send(JSON.stringify({
-                type: "recv-transport-connect-successfull"
-              }))
             }else if(msg.type === "produce"){
               const getRoom = rooms.get(msg.roomId);
               const peer = getRoom?.peer.find((e) => e.peerId === msg.peerId);
               const transport = peer?.sendTransport;
-              if(transport === undefined){
+              if(!transport){
                 console.log("transport is undefined");
                 return;
               }
@@ -294,7 +305,16 @@ Bun.serve({
               if(peer){
                 peer.producers = peer.producers || [];
                 peer.producers.push(producer);
-              }              
+              }
+              
+              // Send producer ID back to client
+              ws.send(JSON.stringify({
+                type: "producer-created",
+                producerId: producer.id,
+                kind: producer.kind,
+                roomId: msg.roomId,
+                peerId: msg.peerId
+              }));
             }else if(msg.type === "consume"){
               const getRoom = rooms.get(msg.roomId);
               const peer = getRoom?.peer.find((e) => e.peerId === msg.peerId);
@@ -302,29 +322,25 @@ Bun.serve({
                 console.log("peer is undefined");
                 return;
               }
-              const sendPeer = getRoom?.peer.filter((e) => e.peerId !== msg.peerId);
-              const producers = sendPeer?.flatMap(p => p.producers ?? []);
+              const otherPeers = getRoom?.peer.filter((e) => e.peerId !== msg.peerId);
+              const producers = otherPeers?.flatMap(p => p.producers ?? []);
               const router = getRoom?.router;
               const transport = peer?.recvTransport;
-              if(producers === undefined){
-                console.log("producers is undefined");
+              if(!producers || !router || !transport){
+                console.log("Missing required components for consume");
                 return;
               }
               for (const producer of producers) {
-                if (router?.canConsume({ producerId: producer.id, rtpCapabilities: msg.rtpCapabilities })) {
-                  const consumer = await transport?.consume({
+                if (router.canConsume({ producerId: producer.id, rtpCapabilities: msg.rtpCapabilities })) {
+                  const consumer = await transport.consume({
                     producerId: producer.id,
                     rtpCapabilities: msg.rtpCapabilities,
-                    paused: producer.kind === 'video',
-                    appData: { peerId: peer?.peerId, producerPeerId: producer.appData.peerId }
+                    paused: false, // Don't pause, let client handle
+                    appData: { peerId: peer.peerId, producerPeerId: producer.appData.peerId }
                   });
-                  if(consumer === undefined){
-                    console.log("consumer is undefined");
-                    return;
-                  }
                   peer.consumers = peer.consumers || [];
                   peer.consumers.push(consumer);
-                  peer?.peerSocket.send(JSON.stringify({
+                  ws.send(JSON.stringify({
                     type: 'consumer-created',
                     consumer: {
                       id: consumer.id,
@@ -332,7 +348,9 @@ Bun.serve({
                       kind: consumer.kind,
                       rtpParameters: consumer.rtpParameters,
                       appData: consumer.appData
-                    }
+                    },
+                    roomId: msg.roomId,
+                    peerId: msg.peerId
                   }));
                 }
               }              
