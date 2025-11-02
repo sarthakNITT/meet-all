@@ -1,166 +1,56 @@
-let checkJoinReq = false;
-interface peer {
+//https://www.videosdk.live/developer-hub/media-server/mediasoup-webrtc
+import express from "express";
+import { createWorker } from "./mediasoup-config"
+import JoinRoom from "./helperFunctions/joinRoom";
+
+const app = express();
+app.use(express.json());
+await createWorker();
+interface PeerI {
     peerId: string,
     peerSocket: any
 }
-const rooms = new Map<string, peer[]>();
+const rooms = new Map<string, PeerI[]>();
+
 Bun.serve({
     port: 8080,
     fetch(req, server) {
-        if (server.upgrade(req)) {
-            return; // do not return a Response
-        }
-          return new Response("Upgrade failed", { status: 500 });
-    },
+		if (server.upgrade(req)) {
+			return;
+		}
+		return new Response('Upgrade failed', {status: 500});
+	},
     websocket: {
-        open(ws){
-            let socketId: string = "";
-            let ch = "qwertyuiopasdfghjklzxcvbnmQWERTYUIOPASDFGHJKLZXCVBNM1234567890!@#$%^&*()";
-            for(let i=0;i<8;i++){
-                socketId += ch.charAt(Math.floor(Math.random() * ch.length));
-            }
-            const sendMessage = JSON.stringify({
-                "type": "connection",
-                "value": "successfull",
-                "socketId": `${socketId}`
-            })
-            console.log(`sending message: ${socketId}`);
-            ws.send(sendMessage);
-            setTimeout(() => {
-                if(!checkJoinReq){
-                    ws.close();
-                    return;
-                }
-            }, 10000);
+        open(ws) {
+            
         },
-        close(ws){
-            for(const [roomId, peers] of rooms.entries()){
-                const originalLength = peers.length;
-                const updatedPeers = peers.filter((peer) => peer.peerSocket !== ws);
-                
-                if(updatedPeers.length !== originalLength){
-                    const removedPeer = peers.find((peer) => peer.peerSocket === ws);
-                    
-                    if(updatedPeers.length === 0){
-                        rooms.delete(roomId);
-                    } else {
-                        rooms.set(roomId, updatedPeers);
-                        
-                        if(removedPeer){
-                            updatedPeers.forEach((peer) => {
-                                peer.peerSocket.send(JSON.stringify({
-                                    type: "peer-left",
-                                    peerId: removedPeer.peerId,
-                                    roomId: roomId
-                                }));
-                            });
-                        }
-                    }
-                    break;
-                }
-            }
-        },
-        message(ws, message: string){
-            const msg = JSON.parse(message)
-            if(msg.type === "join"){
-                console.log(1);
-                console.log(msg.roomId);
-                console.log(msg.peerId);
-                const newPeer = {
-                    peerId: msg.peerId,
-                    peerSocket: ws
-                }
-                const existingPeers = rooms.get(msg.roomId);
-                if(!existingPeers){
-                    console.log("room doesn't exists");
-                    return;
-                }
-                existingPeers.push(newPeer);
-                rooms.set(msg.roomId, existingPeers);
-                checkJoinReq = true;
-                const room = rooms.get(msg.roomId);
-                console.log(room);
-                const sendMessageTo = room?.filter((e) => e.peerId !== msg.peerId);
-                console.log(sendMessageTo);
-                sendMessageTo?.forEach((e) => {
-                    e.peerSocket.send(JSON.stringify({
-                        "type": "joined",
-                        "peerId": `${msg.peerId}`,
-                        "roomId": `${msg.roomId}`
-                    }))
-                })
-            }else if(msg.type === "create"){
-                console.log(msg.roomId);
-                console.log(msg.peerId);
-                const creatorPeer: peer = {
-                    peerId: msg.peerId,
-                    peerSocket: ws
-                };
-                rooms.set(msg.roomId, [creatorPeer]);
-                checkJoinReq = true;
-                ws.send(JSON.stringify({
-                    type: "created",
-                    roomId: msg.roomId,
-                    peerId: msg.peerId
-                }));
-            }else if(msg.type === "offer"){
-                console.log(msg);
-                const room = rooms.get(msg.roomId);
-                console.log(room);
-                const peer = room?.find((e) => e.peerId === msg.to)
-                console.log(peer?.peerId);
-                console.log(msg.to);
-                peer?.peerSocket.send(JSON.stringify({
-                    type: "offer",
-                    offer: msg.offer,
-                    from: msg.from,
-                    to: msg.to,
-                    roomId: msg.roomId
-                }))
-            }else if(msg.type === "answer"){
-                console.log(msg);
-                const room = rooms.get(msg.roomId);
-                const peer = room?.find((e) => e.peerId === msg.to)
-                peer?.peerSocket.send(JSON.stringify({
-                    type: "answer",
-                    answer: msg.answer,
-                    from: msg.from,
-                    to: msg.to,
-                    roomId: msg.roomId
-                }))
-            }else if(msg.type === "new-ice-candidate"){
-                console.log(msg);
-                const room = rooms.get(msg.roomId);
-                const peer = room?.find((e) => e.peerId === msg.to)
-                peer?.peerSocket.send(JSON.stringify({
-                    type: "new-ice-candidate",
-                    candidate: msg.candidate,
-                    from: msg.from,
-                    to: msg.to,
-                    roomId: msg.roomId
-                }))
-            }else if(msg.type === "leave"){
-                const room = rooms.get(msg.roomId);
-                if(room){
-                    const updatedRoom = room.filter((e) => e.peerId !== msg.peerId);
-                    
-                    if(updatedRoom.length === 0){
-                        rooms.delete(msg.roomId);
-                    } else {
-                        rooms.set(msg.roomId, updatedRoom);
-                        
-                        updatedRoom.forEach((peer) => {
-                            peer.peerSocket.send(JSON.stringify({
-                                type: "peer-left",
-                                peerId: msg.peerId,
-                                roomId: msg.roomId
-                            }));
-                        });
-                    }
-                    
-                    ws.close();
-                }
+        async message(ws, message: string) {
+            const msg = JSON.parse(message);
+            console.log(`Message from client recieved: ${msg}`);
+            switch (msg.type) {
+                case "join":
+                    const peers = rooms.get(msg.roomId) || [];
+                    peers.push({ peerId: msg.peerId, peerSocket: ws });
+                    rooms.set(msg.roomId, peers);
+                    const roomId = msg.roomId;
+                    roomId.forEach((peer: any) => {
+                        peer.peerSocket.send(JSON.stringify({
+                            type: "room-joined",
+                            peerId: `${peer.peerId}`,
+                            roomId: `${peer.roomId}`
+                        }));
+                    });
+                    const transport = await JoinRoom();
+                    ws.send(JSON.stringify({
+                        type: "transport-created",
+                        transportOptions: transport
+                    }));
+                case "leave":
             }
         }
     }
+})
+
+app.listen(3000, () => {
+    console.log(`Server is running on port 3000`);
 })
